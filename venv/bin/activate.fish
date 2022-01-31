@@ -29,7 +29,7 @@ end
 # unset irrelevant variables
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV "/home/climatemetrics/working/high-frequency-data/venv"
+set -gx VIRTUAL_ENV "/home/climatemetrics/posts/high-frequency-data/venv"
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/bin" $PATH
