@@ -1,0 +1,8 @@
+# data and .csv files - please contact john.collins@edhec.com re source data
+*.csv
+*.xls*
+data/
+
+# jupyter checkpoints
+.ipynb_checkpoints/
+
