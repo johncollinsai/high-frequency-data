@@ -6,3 +6,6 @@ data/
 # jupyter checkpoints
 .ipynb_checkpoints/
 
+# working files, which I generally name 'rem'
+rem.*
+
