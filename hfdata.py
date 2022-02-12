@@ -9,7 +9,7 @@ import numpy as np
 import statsmodels.api as sm
 import scipy.stats as stats
 from scipy import stats
-from arch.unitroot import VarianceRatio
+# from arch.unitroot import VarianceRatio
 from datetime import datetime, timedelta, date
 
 # disable warnings emitted by warnings.warn re aesthetics of post
@@ -301,6 +301,7 @@ def autocorr_highres(smF):
 
     return u, v, w, sig, zero, n_lags
 
+'''
 # variance ratios
 def vr_list(n_lags_fx, AAPL_lr, JPM_lr, lrFX, bigF, dfFX):
 
@@ -355,6 +356,7 @@ def vr_list(n_lags_fx, AAPL_lr, JPM_lr, lrFX, bigF, dfFX):
 
     return (vr_list_a, vr_list_j, vr_list_fx, vr_a, vr_a_simple, vr_j, 
             vr_j_simple, vr_fx, vr_fx_simple)
+'''
 
 
 
