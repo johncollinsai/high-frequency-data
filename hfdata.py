@@ -17,10 +17,10 @@ warnings.filterwarnings('ignore')
 
 # import HF datasets
 def import_hf_data():
-    dfFX = pd.read_csv("data/ALL.csv", engine='python', header=None)
-    bigF = pd.read_csv("data/bigF.csv", index_col=False, header=0, engine='python')
+    dfFX = pd.read_csv("ALL.csv", engine='python', header=None)
+    bigF = pd.read_csv("bigF.csv", index_col=False, header=0, engine='python')
     bigF = bigF.drop(columns=['Unnamed: 0'])
-    dat2 = pd.read_csv("data/DEXJPUS.csv", engine='python', header=0) 
+    dat2 = pd.read_csv("DEXJPUS.csv", engine='python', header=0) 
     return dfFX, bigF, dat2
 
 # assemble time series
