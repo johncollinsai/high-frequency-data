@@ -9,3 +9,5 @@ data/
 # working files, which I generally name 'rem'
 rem.*
 
+# environment variables
+.env
