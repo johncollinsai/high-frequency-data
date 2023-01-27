@@ -1,15 +1,12 @@
 # Copyright (C) PyZMQ Developers
 # Distributed under the terms of the Modified BSD License.
 
+import threading
 import time
-from unittest import TestCase
 
 import zmq
 from zmq import devices
-
-from zmq.tests import BaseZMQTestCase, SkipTest, PYPY
-from zmq.utils.strtypes import unicode
-
+from zmq.tests import PYPY, BaseZMQTestCase
 
 if PYPY or zmq.zmq_version_info() >= (4, 1):
     # cleanup of shared Context doesn't work on PyPy
@@ -37,7 +34,7 @@ class TestMonitoredQueue(BaseZMQTestCase):
         self.device.start()
         time.sleep(0.2)
         try:
-            # this is currenlty necessary to ensure no dropped monitor messages
+            # this is currently necessary to ensure no dropped monitor messages
             # see LIBZMQ-248 for more info
             mon.recv_multipart(zmq.NOBLOCK)
         except zmq.ZMQError:
@@ -46,21 +43,36 @@ class TestMonitoredQueue(BaseZMQTestCase):
         return alice, bob, mon
 
     def teardown_device(self):
+        # spawn term in a background thread
+        for i in range(50):
+            # wait for device._context to be populated
+            context = getattr(self.device, "_context", None)
+            if context is not None:
+                break
+            time.sleep(0.1)
+
+        if context is not None:
+            t = threading.Thread(target=self.device._context.term, daemon=True)
+            t.start()
+
         for socket in self.sockets:
             socket.close()
-            del socket
-        del self.device
+
+        if context is not None:
+            t.join(timeout=5)
+
+        self.device.join(timeout=5)
 
     def test_reply(self):
         alice, bob, mon = self.build_device()
         alices = b"hello bob".split()
         alice.send_multipart(alices)
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices, bobs)
+        assert alices == bobs
         bobs = b"hello alice".split()
         bob.send_multipart(bobs)
         alices = self.recv_multipart(alice)
-        self.assertEqual(alices, bobs)
+        assert alices == bobs
         self.teardown_device()
 
     def test_queue(self):
@@ -72,15 +84,15 @@ class TestMonitoredQueue(BaseZMQTestCase):
         alices3 = b"hello again and again".split()
         alice.send_multipart(alices3)
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices, bobs)
+        assert alices == bobs
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices2, bobs)
+        assert alices2 == bobs
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices3, bobs)
+        assert alices3 == bobs
         bobs = b"hello alice".split()
         bob.send_multipart(bobs)
         alices = self.recv_multipart(alice)
-        self.assertEqual(alices, bobs)
+        assert alices == bobs
         self.teardown_device()
 
     def test_monitor(self):
@@ -92,23 +104,23 @@ class TestMonitoredQueue(BaseZMQTestCase):
         alices3 = b"hello again and again".split()
         alice.send_multipart(alices3)
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices, bobs)
+        assert alices == bobs
         mons = self.recv_multipart(mon)
-        self.assertEqual([b'in'] + bobs, mons)
+        assert [b'in'] + bobs == mons
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices2, bobs)
+        assert alices2 == bobs
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices3, bobs)
+        assert alices3 == bobs
         mons = self.recv_multipart(mon)
-        self.assertEqual([b'in'] + alices2, mons)
+        assert [b'in'] + alices2 == mons
         bobs = b"hello alice".split()
         bob.send_multipart(bobs)
         alices = self.recv_multipart(alice)
-        self.assertEqual(alices, bobs)
+        assert alices == bobs
         mons = self.recv_multipart(mon)
-        self.assertEqual([b'in'] + alices3, mons)
+        assert [b'in'] + alices3 == mons
         mons = self.recv_multipart(mon)
-        self.assertEqual([b'out'] + bobs, mons)
+        assert [b'out'] + bobs == mons
         self.teardown_device()
 
     def test_prefix(self):
@@ -120,23 +132,23 @@ class TestMonitoredQueue(BaseZMQTestCase):
         alices3 = b"hello again and again".split()
         alice.send_multipart(alices3)
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices, bobs)
+        assert alices == bobs
         mons = self.recv_multipart(mon)
-        self.assertEqual([b'foo'] + bobs, mons)
+        assert [b'foo'] + bobs == mons
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices2, bobs)
+        assert alices2 == bobs
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices3, bobs)
+        assert alices3 == bobs
         mons = self.recv_multipart(mon)
-        self.assertEqual([b'foo'] + alices2, mons)
+        assert [b'foo'] + alices2 == mons
         bobs = b"hello alice".split()
         bob.send_multipart(bobs)
         alices = self.recv_multipart(alice)
-        self.assertEqual(alices, bobs)
+        assert alices == bobs
         mons = self.recv_multipart(mon)
-        self.assertEqual([b'foo'] + alices3, mons)
+        assert [b'foo'] + alices3 == mons
         mons = self.recv_multipart(mon)
-        self.assertEqual([b'bar'] + bobs, mons)
+        assert [b'bar'] + bobs == mons
         self.teardown_device()
 
     def test_monitor_subscribe(self):
@@ -148,17 +160,17 @@ class TestMonitoredQueue(BaseZMQTestCase):
         alices3 = b"hello again and again".split()
         alice.send_multipart(alices3)
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices, bobs)
+        assert alices == bobs
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices2, bobs)
+        assert alices2 == bobs
         bobs = self.recv_multipart(bob)
-        self.assertEqual(alices3, bobs)
+        assert alices3 == bobs
         bobs = b"hello alice".split()
         bob.send_multipart(bobs)
         alices = self.recv_multipart(alice)
-        self.assertEqual(alices, bobs)
+        assert alices == bobs
         mons = self.recv_multipart(mon)
-        self.assertEqual([b'out'] + bobs, mons)
+        assert [b'out'] + bobs == mons
         self.teardown_device()
 
     def test_router_router(self):
@@ -195,10 +207,10 @@ class TestMonitoredQueue(BaseZMQTestCase):
         msg = [b'hello', b'there']
         a.send_multipart([b'b'] + msg)
         bmsg = self.recv_multipart(b)
-        self.assertEqual(bmsg, [b'a'] + msg)
+        assert bmsg == [b'a'] + msg
         b.send_multipart(bmsg)
         amsg = self.recv_multipart(a)
-        self.assertEqual(amsg, [b'b'] + msg)
+        assert amsg == [b'b'] + msg
         self.teardown_device()
 
     def test_default_mq_args(self):
@@ -218,6 +230,6 @@ class TestMonitoredQueue(BaseZMQTestCase):
         mons = self.context.socket(zmq.PUB)
         self.sockets.extend([ins, outs, mons])
 
-        ins = unicode('in')
-        outs = unicode('out')
+        ins = 'in'
+        outs = 'out'
         self.assertRaises(TypeError, devices.monitoredqueue, ins, outs, mons)

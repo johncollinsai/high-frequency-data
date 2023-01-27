@@ -4,10 +4,10 @@
 # Distributed under the terms of the Modified BSD License.
 
 import zmq
-from zmq.devices.basedevice import Device, ThreadDevice, ProcessDevice
+from zmq.devices.basedevice import Device, ProcessDevice, ThreadDevice
 
 
-class ProxyBase(object):
+class ProxyBase:
     """Base class for overriding methods."""
 
     def __init__(self, in_type, out_type, mon_type=zmq.PUB):
@@ -57,6 +57,7 @@ class ProxyBase(object):
         ins, outs = Device._setup_sockets(self)
         ctx = self._context
         mons = ctx.socket(self.mon_type)
+        self._sockets.append(mons)
 
         # set sockopts (must be done first, in case of zmq.IDENTITY)
         for opt, value in self._mon_sockopts:
@@ -88,19 +89,13 @@ class Proxy(ProxyBase, Device):
     A PUB socket is the most logical choice for the mon_socket, but it is not required.
     """
 
-    pass
-
 
 class ThreadProxy(ProxyBase, ThreadDevice):
     """Proxy in a Thread. See Proxy for more."""
 
-    pass
-
 
 class ProcessProxy(ProxyBase, ProcessDevice):
     """Proxy in a Process. See Proxy for more."""
-
-    pass
 
 
 __all__ = [

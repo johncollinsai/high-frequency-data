@@ -1,20 +1,19 @@
-# coding: utf-8
 """zmq Context class"""
 
 # Copyright (C) PyZMQ Developers
 # Distributed under the terms of the Modified BSD License.
 
-from ._cffi import lib as C, ffi
+from zmq.constants import EINVAL, IO_THREADS
+from zmq.error import InterruptedSystemCall, ZMQError, _check_rc
 
-from .constants import EINVAL, IO_THREADS, LINGER
+from ._cffi import ffi
+from ._cffi import lib as C
 
-from zmq.error import ZMQError, InterruptedSystemCall, _check_rc
 
-
-class Context(object):
+class Context:
     _zmq_ctx = None
     _iothreads = None
-    _closed = None
+    _closed = True
     _shadow = False
 
     def __init__(self, io_threads=1, shadow=None):

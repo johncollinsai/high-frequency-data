@@ -6,8 +6,8 @@ This is a fork from jupyter/notebook#5.7.x
 # Copyright (c) Jupyter Development Team.
 # Distributed under the terms of the Modified BSD License.
 
-from tornado import web
-import os
+import re
+from tornado import web, gen
 
 from jupyter_server.base.handlers import JupyterHandler
 from jupyter_server.extension.handler import (
@@ -15,7 +15,9 @@ from jupyter_server.extension.handler import (
     ExtensionHandlerJinjaMixin
 )
 from jupyter_server.base.handlers import path_regex
-from jupyter_server.utils import url_path_join, url_escape
+from jupyter_server.utils import url_path_join, url_escape, ensure_async
+
+from nbclassic import nbclassic_path
 
 
 class TreeHandler(ExtensionHandlerJinjaMixin, ExtensionHandlerMixin, JupyterHandler):
@@ -44,12 +46,18 @@ class TreeHandler(ExtensionHandlerJinjaMixin, ExtensionHandlerMixin, JupyterHand
             return 'Home'
 
     @web.authenticated
+    @gen.coroutine
     def get(self, path=''):
         path = path.strip('/')
         cm = self.contents_manager
 
-        if cm.dir_exists(path=path):
-            if cm.is_hidden(path) and not cm.allow_hidden:
+        file_exists = False
+        dir_exists = yield ensure_async(cm.dir_exists(path=path))
+        if not dir_exists:
+            file_exists = yield ensure_async(cm.file_exists(path))
+        if dir_exists:
+            is_hidden = yield ensure_async(cm.is_hidden(path))
+            if is_hidden and not cm.allow_hidden:
                 self.log.info("Refusing to serve hidden directory, via 404 Error")
                 raise web.HTTPError(404)
             breadcrumbs = self.generate_breadcrumbs(path)
@@ -62,9 +70,9 @@ class TreeHandler(ExtensionHandlerJinjaMixin, ExtensionHandlerMixin, JupyterHand
                 server_root=self.settings['server_root_dir'],
                 shutdown_button=self.settings.get('shutdown_button', False)
             ))
-        elif cm.file_exists(path):
+        elif file_exists :
             # it's not a directory, we have redirecting to do
-            model = cm.get(path, content=False)
+            model = yield ensure_async(cm.get(path, content=False))
             # redirect to /api/notebooks if it's a notebook, otherwise /api/files
             service = 'notebooks' if model['type'] == 'notebook' else 'files'
             url = url_path_join(
@@ -82,6 +90,6 @@ class TreeHandler(ExtensionHandlerJinjaMixin, ExtensionHandlerMixin, JupyterHand
 
 
 default_handlers = [
-    (r"/tree%s" % path_regex, TreeHandler),
-    (r"/tree", TreeHandler),
+    (r"{}/tree{}".format(nbclassic_path(), path_regex), TreeHandler),
+    (r"%s/tree" % nbclassic_path(), TreeHandler),
 ]

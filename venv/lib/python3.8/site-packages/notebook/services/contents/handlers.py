@@ -45,7 +45,7 @@ def validate_model(model, expect_content):
     if missing:
         raise web.HTTPError(
             500,
-            u"Missing Model Keys: {missing}".format(missing=missing),
+            f"Missing Model Keys: {missing}",
         )
 
     maybe_none_keys = ['content', 'format']
@@ -54,7 +54,7 @@ def validate_model(model, expect_content):
         if errors:
             raise web.HTTPError(
                 500,
-                u"Keys unexpectedly None: {keys}".format(keys=errors),
+                f"Keys unexpectedly None: {errors}",
             )
     else:
         errors = {
@@ -65,7 +65,7 @@ def validate_model(model, expect_content):
         if errors:
             raise web.HTTPError(
                 500,
-                u"Keys unexpectedly not None: {keys}".format(keys=errors),
+                f"Keys unexpectedly not None: {errors}",
             )
 
 
@@ -101,18 +101,20 @@ class ContentsHandler(APIHandler):
         of the files and directories it contains.
         """
         path = path or ''
+        cm = self.contents_manager
         type = self.get_query_argument('type', default=None)
         if type not in {None, 'directory', 'file', 'notebook'}:
-            raise web.HTTPError(400, u'Type %r is invalid' % type)
+            raise web.HTTPError(400, f'Type {type!r} is invalid')
 
         format = self.get_query_argument('format', default=None)
         if format not in {None, 'text', 'base64'}:
-            raise web.HTTPError(400, u'Format %r is invalid' % format)
+            raise web.HTTPError(400, f'Format {format!r} is invalid')
         content = self.get_query_argument('content', default='1')
         if content not in {'0', '1'}:
-            raise web.HTTPError(400, u'Content %r is invalid' % content)
+            raise web.HTTPError(400, f'Content {content!r} is invalid')
         content = int(content)
-
+        if cm.is_hidden(path) and not cm.allow_hidden:
+            raise web.HTTPError(404, f'file or directory {path!r} does not exist')
         model = yield maybe_future(self.contents_manager.get(
             path=path, type=type, format=format, content=content,
         ))
@@ -125,8 +127,11 @@ class ContentsHandler(APIHandler):
         """PATCH renames a file or directory without re-uploading content."""
         cm = self.contents_manager
         model = self.get_json_body()
+        old_path = model.get('path')
+        if old_path and (cm.is_hidden(path) or cm.is_hidden(old_path))  and not cm.allow_hidden:
+            raise web.HTTPError(400, f'Cannot rename file or directory {path!r}')
         if model is None:
-            raise web.HTTPError(400, u'JSON body missing')
+            raise web.HTTPError(400, 'JSON body missing')
         model = yield maybe_future(cm.update(model, path))
         validate_model(model, expect_content=False)
         self._finish_model(model)
@@ -134,10 +139,7 @@ class ContentsHandler(APIHandler):
     @gen.coroutine
     def _copy(self, copy_from, copy_to=None):
         """Copy a file, optionally specifying a target directory."""
-        self.log.info(u"Copying {copy_from} to {copy_to}".format(
-            copy_from=copy_from,
-            copy_to=copy_to or '',
-        ))
+        self.log.info(f"Copying {copy_from} to {copy_to or ''}")
         model = yield maybe_future(self.contents_manager.copy(copy_from, copy_to))
         self.set_status(201)
         validate_model(model, expect_content=False)
@@ -146,7 +148,7 @@ class ContentsHandler(APIHandler):
     @gen.coroutine
     def _upload(self, model, path):
         """Handle upload of a new file to path"""
-        self.log.info(u"Uploading file to %s", path)
+        self.log.info("Uploading file to %s", path)
         model = yield maybe_future(self.contents_manager.new(model, path))
         self.set_status(201)
         validate_model(model, expect_content=False)
@@ -155,7 +157,7 @@ class ContentsHandler(APIHandler):
     @gen.coroutine
     def _new_untitled(self, path, type='', ext=''):
         """Create a new, empty untitled entity"""
-        self.log.info(u"Creating new %s in %s", type or 'file', path)
+        self.log.info("Creating new %s in %s", type or 'file', path)
         model = yield maybe_future(self.contents_manager.new_untitled(path=path, type=type, ext=ext))
         self.set_status(201)
         validate_model(model, expect_content=False)
@@ -166,7 +168,7 @@ class ContentsHandler(APIHandler):
         """Save an existing file."""
         chunk = model.get("chunk", None)
         if not chunk or chunk == -1:  # Avoid tedious log information
-            self.log.info(u"Saving file at %s", path)
+            self.log.info("Saving file at %s", path)
         model = yield maybe_future(self.contents_manager.save(model, path))
         validate_model(model, expect_content=False)
         self._finish_model(model)
@@ -193,9 +195,12 @@ class ContentsHandler(APIHandler):
 
         dir_exists = yield maybe_future(cm.dir_exists(path))
         if not dir_exists:
-            raise web.HTTPError(404, "No such directory: %s" % path)
+            raise web.HTTPError(404, f"No such directory: {path}")
 
         model = self.get_json_body()
+        copy_from = model.get('copy_from')
+        if copy_from and (cm.is_hidden(path) or cm.is_hidden(copy_from))  and not cm.allow_hidden:
+            raise web.HTTPError(400, f'Cannot copy file or directory {path!r}')
 
         if model is not None:
             copy_from = model.get('copy_from')
@@ -222,9 +227,12 @@ class ContentsHandler(APIHandler):
           create a new empty notebook.
         """
         model = self.get_json_body()
+        cm = self.contents_manager
         if model:
             if model.get('copy_from'):
                 raise web.HTTPError(400, "Cannot copy with PUT, only POST")
+            if model.get('path') and (cm.is_hidden(path) or cm.is_hidden(model.get('path')))  and not cm.allow_hidden:
+                raise web.HTTPError(400, f'Cannot create file or directory {path!r}')
             exists = yield maybe_future(self.contents_manager.file_exists(path))
             if exists:
                 yield maybe_future(self._save(model, path))
@@ -238,6 +246,10 @@ class ContentsHandler(APIHandler):
     def delete(self, path=''):
         """delete a file in the given path"""
         cm = self.contents_manager
+
+        if cm.is_hidden(path) and not cm.allow_hidden:
+            raise web.HTTPError(400, f'Cannot delete file or directory {path!r}')
+
         self.log.warning('delete %s', path)
         yield maybe_future(cm.delete(path))
         self.set_status(204)
@@ -323,10 +335,10 @@ class TrustNotebooksHandler(IPythonHandler):
 _checkpoint_id_regex = r"(?P<checkpoint_id>[\w-]+)"
 
 default_handlers = [
-    (r"/api/contents%s/checkpoints" % path_regex, CheckpointsHandler),
-    (r"/api/contents%s/checkpoints/%s" % (path_regex, _checkpoint_id_regex),
+    (fr"/api/contents{path_regex}/checkpoints", CheckpointsHandler),
+    (fr"/api/contents{path_regex}/checkpoints/{_checkpoint_id_regex}",
         ModifyCheckpointsHandler),
-    (r"/api/contents%s/trust" % path_regex, TrustNotebooksHandler),
-    (r"/api/contents%s" % path_regex, ContentsHandler),
+    (fr"/api/contents{path_regex}/trust", TrustNotebooksHandler),
+    (fr"/api/contents{path_regex}", ContentsHandler),
     (r"/api/notebooks/?(.*)", NotebooksRedirectHandler),
 ]

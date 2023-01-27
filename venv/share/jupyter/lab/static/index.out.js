@@ -210,6 +210,16 @@ export async function main() {
       console.error(e);
     }
   }
+  if (!queuedFederated.includes('@jupyterlab/cell-toolbar-extension')) {
+    try {
+      let ext = require('@jupyterlab/cell-toolbar-extension');
+      for (let plugin of activePlugins(ext)) {
+        register.push(plugin);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
   if (!queuedFederated.includes('@jupyterlab/celltags-extension')) {
     try {
       let ext = require('@jupyterlab/celltags-extension');

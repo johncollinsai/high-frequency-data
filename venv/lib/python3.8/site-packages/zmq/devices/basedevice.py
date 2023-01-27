@@ -5,11 +5,12 @@
 
 
 import time
-from threading import Thread
 from multiprocessing import Process
-from typing import Any
+from threading import Thread
+from typing import Any, Callable, List, Optional, Tuple
 
-from zmq import device, QUEUE, REQ, Context, ETERM, ZMQBindError, ZMQError
+import zmq
+from zmq import ENOTSOCK, ETERM, PUSH, QUEUE, Context, ZMQBindError, ZMQError, device
 
 
 class Device:
@@ -51,7 +52,7 @@ class Device:
 
     Attributes
     ----------
-    daemon : int
+    daemon : bool
         sets whether the thread should be run as a daemon
         Default is true, because if it is false, the thread will not
         exit unless it is killed
@@ -63,12 +64,31 @@ class Device:
         should *never* try to use it.
     """
 
-    context_factory = Context.instance
+    context_factory: Callable[[], zmq.Context] = Context.instance
     """Callable that returns a context. Typically either Context.instance or Context,
     depending on whether the device should share the global instance or not.
     """
 
-    def __init__(self, device_type=QUEUE, in_type=None, out_type=None):
+    daemon: bool
+    device_type: int
+    in_type: int
+    out_type: int
+
+    _in_binds: List[str]
+    _in_connects: List[str]
+    _in_sockopts: List[Tuple[int, Any]]
+    _out_binds: List[str]
+    _out_connects: List[str]
+    _out_sockopts: List[Tuple[int, Any]]
+    _random_addrs: List[str]
+    _sockets: List[zmq.Socket]
+
+    def __init__(
+        self,
+        device_type: int = QUEUE,
+        in_type: Optional[int] = None,
+        out_type: Optional[int] = None,
+    ) -> None:
         self.device_type = device_type
         if in_type is None:
             raise TypeError("in_type must be specified")
@@ -85,15 +105,16 @@ class Device:
         self._random_addrs = []
         self.daemon = True
         self.done = False
+        self._sockets = []
 
-    def bind_in(self, addr):
+    def bind_in(self, addr: str) -> None:
         """Enqueue ZMQ address for binding on in_socket.
 
         See zmq.Socket.bind for details.
         """
         self._in_binds.append(addr)
 
-    def bind_in_to_random_port(self, addr, *args, **kwargs):
+    def bind_in_to_random_port(self, addr: str, *args, **kwargs) -> int:
         """Enqueue a random port on the given interface for binding on
         in_socket.
 
@@ -107,28 +128,28 @@ class Device:
 
         return port
 
-    def connect_in(self, addr):
+    def connect_in(self, addr: str) -> None:
         """Enqueue ZMQ address for connecting on in_socket.
 
         See zmq.Socket.connect for details.
         """
         self._in_connects.append(addr)
 
-    def setsockopt_in(self, opt, value):
+    def setsockopt_in(self, opt: int, value: Any) -> None:
         """Enqueue setsockopt(opt, value) for in_socket
 
         See zmq.Socket.setsockopt for details.
         """
         self._in_sockopts.append((opt, value))
 
-    def bind_out(self, addr):
+    def bind_out(self, addr: str) -> None:
         """Enqueue ZMQ address for binding on out_socket.
 
         See zmq.Socket.bind for details.
         """
         self._out_binds.append(addr)
 
-    def bind_out_to_random_port(self, addr, *args, **kwargs):
+    def bind_out_to_random_port(self, addr: str, *args, **kwargs) -> int:
         """Enqueue a random port on the given interface for binding on
         out_socket.
 
@@ -142,54 +163,51 @@ class Device:
 
         return port
 
-    def connect_out(self, addr):
+    def connect_out(self, addr: str):
         """Enqueue ZMQ address for connecting on out_socket.
 
         See zmq.Socket.connect for details.
         """
         self._out_connects.append(addr)
 
-    def setsockopt_out(self, opt, value):
+    def setsockopt_out(self, opt: int, value: Any):
         """Enqueue setsockopt(opt, value) for out_socket
 
         See zmq.Socket.setsockopt for details.
         """
         self._out_sockopts.append((opt, value))
 
-    def _reserve_random_port(self, addr, *args, **kwargs):
-        ctx = Context()
+    def _reserve_random_port(self, addr: str, *args, **kwargs) -> int:
+        with Context() as ctx:
+            with ctx.socket(PUSH) as binder:
+                for i in range(5):
+                    port = binder.bind_to_random_port(addr, *args, **kwargs)
 
-        binder = ctx.socket(REQ)
+                    new_addr = '%s:%i' % (addr, port)
 
-        for i in range(5):
-            port = binder.bind_to_random_port(addr, *args, **kwargs)
+                    if new_addr in self._random_addrs:
+                        continue
+                    else:
+                        break
+                else:
+                    raise ZMQBindError("Could not reserve random port.")
 
-            new_addr = '%s:%i' % (addr, port)
-
-            if new_addr in self._random_addrs:
-                continue
-            else:
-                break
-        else:
-            raise ZMQBindError("Could not reserve random port.")
-
-        self._random_addrs.append(new_addr)
-
-        binder.close()
+                self._random_addrs.append(new_addr)
 
         return port
 
-    def _setup_sockets(self):
-        ctx = self.context_factory()
-
+    def _setup_sockets(self) -> Tuple[zmq.Socket, zmq.Socket]:
+        ctx: zmq.Context[zmq.Socket] = self.context_factory()  # type: ignore
         self._context = ctx
 
         # create the sockets
         ins = ctx.socket(self.in_type)
+        self._sockets.append(ins)
         if self.out_type < 0:
             outs = ins
         else:
             outs = ctx.socket(self.out_type)
+            self._sockets.append(outs)
 
         # set sockopts (must be done first, in case of zmq.IDENTITY)
         for opt, value in self._in_sockopts:
@@ -209,7 +227,7 @@ class Device:
 
         return ins, outs
 
-    def run_device(self):
+    def run_device(self) -> None:
         """The runner method.
 
         Do not call me directly, instead call ``self.start()``, just like a Thread.
@@ -217,32 +235,39 @@ class Device:
         ins, outs = self._setup_sockets()
         device(self.device_type, ins, outs)
 
-    def run(self):
+    def _close_sockets(self):
+        """Cleanup sockets we created"""
+        for s in self._sockets:
+            if s and not s.closed:
+                s.close()
+
+    def run(self) -> None:
         """wrap run_device in try/catch ETERM"""
         try:
             self.run_device()
         except ZMQError as e:
-            if e.errno == ETERM:
-                # silence TERM errors, because this should be a clean shutdown
+            if e.errno in {ETERM, ENOTSOCK}:
+                # silence TERM, ENOTSOCK errors, because this should be a clean shutdown
                 pass
             else:
                 raise
         finally:
             self.done = True
+            self._close_sockets()
 
-    def start(self):
+    def start(self) -> None:
         """Start the device. Override me in subclass for other launchers."""
         return self.run()
 
-    def join(self, timeout=None):
+    def join(self, timeout: Optional[float] = None) -> None:
         """wait for me to finish, like Thread.join.
 
         Reimplemented appropriately by subclasses."""
-        tic = time.time()
+        tic = time.monotonic()
         toc = tic
         while not self.done and not (timeout is not None and toc - tic > timeout):
             time.sleep(0.001)
-            toc = time.time()
+            toc = time.monotonic()
 
 
 class BackgroundDevice(Device):
@@ -251,12 +276,12 @@ class BackgroundDevice(Device):
     launcher: Any = None
     _launch_class: Any = None
 
-    def start(self):
+    def start(self) -> None:
         self.launcher = self._launch_class(target=self.run)
         self.launcher.daemon = self.daemon
         return self.launcher.start()
 
-    def join(self, timeout=None):
+    def join(self, timeout: Optional[float] = None) -> None:
         return self.launcher.join(timeout=timeout)
 
 

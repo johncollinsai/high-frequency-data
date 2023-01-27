@@ -3,8 +3,8 @@
 # Copyright (C) PyZMQ Developers
 # Distributed under the terms of the Modified BSD License.
 
-from typing import Dict
 from importlib import import_module
+from typing import Dict
 
 public_api = [
     'Context',
@@ -20,7 +20,6 @@ public_api = [
     'has',
     'curve_keypair',
     'curve_public',
-    'constants',
     'zmq_version_info',
     'IPC_PATH_MAX_LEN',
 ]
@@ -34,8 +33,4 @@ def select_backend(name: str) -> Dict:
         raise
     except Exception as e:
         raise ImportError(f"Importing {name} failed with {e}") from e
-
-    ns = {}
-    for key in public_api:
-        ns[key] = getattr(mod, key)
-    return ns
+    return {key: getattr(mod, key) for key in public_api}

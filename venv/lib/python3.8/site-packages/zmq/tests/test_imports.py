@@ -1,67 +1,99 @@
+"""
+Test Imports - the quickest test to ensure that we haven't
+introduced version-incompatible syntax errors.
+"""
 # Copyright (C) PyZMQ Developers
 # Distributed under the terms of the Modified BSD License.
 
-import sys
-from unittest import TestCase
+# flake8: noqa: F401
 
 import pytest
 
 
-class TestImports(TestCase):
-    """Test Imports - the quickest test to ensure that we haven't
-    introduced version-incompatible syntax errors."""
+def test_toplevel():
+    """test toplevel import"""
+    import zmq
 
-    def test_toplevel(self):
-        """test toplevel import"""
-        import zmq
 
-    def test_core(self):
-        """test core imports"""
-        from zmq import Context
-        from zmq import Socket
-        from zmq import Poller
-        from zmq import Frame
-        from zmq import constants
-        from zmq import device, proxy
-        from zmq import (
-            zmq_version,
-            zmq_version_info,
-            pyzmq_version,
-            pyzmq_version_info,
-        )
+def test_core():
+    """test core imports"""
+    from zmq import (
+        Context,
+        Frame,
+        Poller,
+        Socket,
+        constants,
+        device,
+        proxy,
+        pyzmq_version,
+        pyzmq_version_info,
+        zmq_version,
+        zmq_version_info,
+    )
 
-    def test_devices(self):
-        """test device imports"""
-        import zmq.devices
-        from zmq.devices import basedevice
-        from zmq.devices import monitoredqueue
-        from zmq.devices import monitoredqueuedevice
 
-    def test_log(self):
-        """test log imports"""
-        import zmq.log
-        from zmq.log import handlers
+def test_devices():
+    """test device imports"""
+    import zmq.devices
+    from zmq.devices import basedevice, monitoredqueue, monitoredqueuedevice
 
-    def test_eventloop(self):
-        """test eventloop imports"""
-        try:
-            import tornado
-        except ImportError:
-            pytest.skip('requires tornado')
-        import zmq.eventloop
-        from zmq.eventloop import ioloop
-        from zmq.eventloop import zmqstream
 
-    def test_utils(self):
-        """test util imports"""
-        import zmq.utils
-        from zmq.utils import strtypes
-        from zmq.utils import jsonapi
+def test_log():
+    """test log imports"""
+    import zmq.log
+    from zmq.log import handlers
 
-    def test_ssh(self):
-        """test ssh imports"""
-        from zmq.ssh import tunnel
 
-    def test_decorators(self):
-        """test decorators imports"""
-        from zmq.decorators import context, socket
+def test_eventloop():
+    """test eventloop imports"""
+    pytest.importorskip("tornado")
+    import zmq.eventloop
+    from zmq.eventloop import ioloop, zmqstream
+
+
+def test_utils():
+    """test util imports"""
+    import zmq.utils
+    from zmq.utils import jsonapi, strtypes
+
+
+def test_ssh():
+    """test ssh imports"""
+    from zmq.ssh import tunnel
+
+
+def test_decorators():
+    """test decorators imports"""
+    from zmq.decorators import context, socket
+
+
+def test_zmq_all():
+    import zmq
+
+    for name in zmq.__all__:
+        assert hasattr(zmq, name)
+
+
+@pytest.mark.parametrize("pkgname", ["zmq", "zmq.green"])
+@pytest.mark.parametrize(
+    "attr",
+    [
+        "RCVTIMEO",
+        "PUSH",
+        "zmq_version_info",
+        "SocketOption",
+        "device",
+        "Socket",
+        "Context",
+    ],
+)
+def test_all_exports(pkgname, attr):
+    import zmq
+
+    subpkg = pytest.importorskip(pkgname)
+    for name in zmq.__all__:
+        assert hasattr(subpkg, name)
+
+    assert attr in subpkg.__all__
+    if attr not in ("Socket", "Context", "device"):
+        assert getattr(subpkg, attr) is getattr(zmq, attr)

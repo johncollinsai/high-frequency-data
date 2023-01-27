@@ -12,10 +12,8 @@ import errno
 import shutil
 import random
 import glob
-from warnings import warn
 
 from IPython.utils.process import system
-from IPython.utils.decorators import undoc
 
 #-----------------------------------------------------------------------------
 # Code
@@ -83,12 +81,13 @@ def get_py_filename(name):
     """
 
     name = os.path.expanduser(name)
-    if not os.path.isfile(name) and not name.endswith('.py'):
-        name += '.py'
     if os.path.isfile(name):
         return name
-    else:
-        raise IOError('File `%r` not found.' % name)
+    if not name.endswith(".py"):
+        py_name = name + ".py"
+        if os.path.isfile(py_name):
+            return py_name
+    raise IOError("File `%r` not found." % name)
 
 
 def filefind(filename: str, path_dirs=None) -> str:
